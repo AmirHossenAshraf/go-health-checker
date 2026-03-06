@@ -1,0 +1,30 @@
+# Example endpoints configuration
+# Copy this file and customize for your infrastructure
+
+settings:
+  timeout: 5s
+  retries: 2
+  interval: 30s
+
+endpoints:
+  - name: "Google"
+    url: "https://www.google.com"
+    method: GET
+    expected_status: 200
+
+  - name: "GitHub API"
+    url: "https://api.github.com"
+    method: GET
+    expected_status: 200
+    headers:
+      Accept: "application/vnd.github.v3+json"
+
+  - name: "HTTPBin"
+    url: "https://httpbin.org/status/200"
+    method: GET
+    expected_status: 200
+
+  - name: "DNS Google TCP"
+    type: tcp
+    host: "8.8.8.8"
+    port: 53

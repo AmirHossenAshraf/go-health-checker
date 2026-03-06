@@ -1,13 +1,18 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
-	"os"
-	"strings"
-	"time"
-
+	"go-health-checker/internal/checker"
 	"go-health-checker/internal/config"
+	"go-health-checker/internal/display"
+	"go-health-checker/internal/reporter"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
 )
 
 var (
@@ -20,6 +25,11 @@ func main() {
 	timeout := flag.Duration("t", 5*time.Second, "Request timeout")
 	retries := flag.Int("r", 0, "Retry count on failure")
 	interval := flag.Duration("i", 30*time.Second, "Check interval (watch mode)")
+	watch := flag.Bool("w", false, "Continuous monitoring mode")
+	format := flag.String("f", "table", "Output format: table, json, csv, prometheus")
+	verbose := flag.Bool("v", false, "Show detailed response info")
+	quiet := flag.Bool("q", false, "Only show failures")
+	webhookURL := flag.String("webhook", "", "Alert webhook URL")
 	showVersion := flag.Bool("version", false, "Show version")
 
 	flag.Usage = func() {
@@ -82,4 +92,51 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Create checker engine
+	engine := checker.NewEngine(checker.Options{
+		Timeout:    *timeout,
+		Retries:    *retries,
+		WebhookURL: *webhookURL,
+		Verbose:    *verbose,
+	})
+
+	// Setup signal handling for graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		fmt.Println("\nShutting down...")
+		cancel()
+	}()
+
+	// Choose output formatter
+	var rep reporter.Reporter
+	switch *format {
+	case "json":
+		rep = reporter.NewJSONReporter(os.Stdout)
+	case "csv":
+		rep = reporter.NewCSVReporter(os.Stdout)
+	case "prometheus":
+		rep = reporter.NewPrometheusReporter(os.Stdout)
+	default:
+		rep = reporter.NewTableReporter(os.Stdout, *quiet)
+	}
+
+	// Run checks
+	if *watch {
+		display.WatchMode(ctx, engine, endpoints, rep, *interval)
+	} else {
+		results := engine.CheckAll(ctx, endpoints)
+		rep.Report(results)
+
+		// Exit with error if any endpoint is unhealthy
+		for _, r := range results {
+			if !r.Healthy {
+				os.Exit(1)
+			}
+		}
+	}
 }
